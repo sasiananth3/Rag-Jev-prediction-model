@@ -18,7 +18,7 @@ class JEVClient:
     """Use TypeSafe JEV to judge retrieval evidence and answer grounding."""
 
     def __init__(
-        self, api_key: str | None = None, model: str = "jev-latest"
+        self, api_key: str | None = None, model: str | None = None
     ) -> None:
         self.api_key = (api_key or os.getenv("TYPESAFE_API_KEY", "")).strip()
         self.model = (model or os.getenv("JEV_MODEL", "jev-latest")).strip()
