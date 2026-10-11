@@ -203,9 +203,6 @@ def main() -> None:
                         label, f"{float(value):.2f} / 1.00" if value is not None else "N/A"
                     )
                 st.write(evaluation.get("reasoning") or "No explanation supplied by JEV.")
-                confidence = evaluation.get("judge_confidence")
-                if confidence is not None:
-                    st.caption(f"JEV judgment confidence: {float(confidence):.2f}")
                 st.caption(
                     "These are JEV model judgments, not measured retrieval accuracy. "
                     "Validate against human-labeled questions and reference passages."
