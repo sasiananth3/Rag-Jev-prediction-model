@@ -31,9 +31,6 @@ def get_pipeline() -> RAGPipeline:
     return RAGPipeline(
         persist_directory=os.getenv("CHROMA_PERSIST_DIRECTORY", "chroma_db"),
         collection_name=os.getenv("CHROMA_COLLECTION", "pdf_knowledge"),
-        embedding_model=os.getenv(
-            "EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2"
-        ),
     )
 
 
