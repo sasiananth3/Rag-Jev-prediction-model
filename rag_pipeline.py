@@ -24,7 +24,7 @@ class RetrievalChunk:
 
 
 def split_text(text: str, chunk_size: int = 1000, overlap: int = 150) -> list[str]:
-    """Split text into overlapping character windows, preferring word boundaries."""
+    """Split text into overlapping windows, preferring nearby word boundaries."""
     if chunk_size < 1 or overlap < 0 or overlap >= chunk_size:
         raise ValueError("Require chunk_size > overlap >= 0.")
     text = " ".join(text.split())
@@ -81,7 +81,7 @@ class RAGPipeline:
             pages = self._read_pdf(upload.getvalue())
             ids: list[str] = []
             documents: list[str] = []
-            metadata: list[dict[str, Any]] = []
+            metadatas: list[dict[str, Any]] = []
             for page_number, page_text in pages:
                 for index, chunk in enumerate(split_text(page_text)):
                     chunk_id = hashlib.sha256(
@@ -89,11 +89,26 @@ class RAGPipeline:
                     ).hexdigest()[:32]
                     ids.append(chunk_id)
                     documents.append(chunk)
-                    metadata.append(
+                    metadatas.append(
                         {"source": filename, "page": page_number, "chunk_index": index}
                     )
+
+            # Replace old chunks from this same filename to avoid stale leftovers.
+            try:
+                self.collection.delete(where={"source": filename})
+            except Exception:
+                # A fresh collection or older Chroma implementation may not need cleanup.
+                pass
             if ids:
-                self.collection.upsert(ids=ids, documents=documents, metadatas=metadata)
+                embeddings = self.embedder.encode(
+                    documents, normalize_embeddings=True, show_progress_bar=False
+                ).tolist()
+                self.collection.upsert(
+                    ids=ids,
+                    documents=documents,
+                    metadatas=metadatas,
+                    embeddings=embeddings,
+                )
             results.append(
                 {"filename": filename, "chunks": len(ids), "pages_with_text": len(pages)}
             )
@@ -105,8 +120,11 @@ class RAGPipeline:
         if not question.strip() or self.collection.count() == 0:
             return []
         query_k = min(max(1, top_k), int(self.collection.count()))
+        query_embedding = self.embedder.encode(
+            [question], normalize_embeddings=True, show_progress_bar=False
+        ).tolist()
         result = self.collection.query(
-            query_texts=[question],
+            query_embeddings=query_embedding,
             n_results=query_k,
             include=["documents", "metadatas", "distances"],
         )
