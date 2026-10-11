@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import io
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Iterable
@@ -62,7 +61,7 @@ class RAGPipeline:
     @staticmethod
     def _read_pdf(data: bytes) -> list[tuple[int, str]]:
         pages: list[tuple[int, str]] = []
-        with fitz.open(stream=io.BytesIO(data), filetype="pdf") as document:
+        with fitz.open(stream=data, filetype="pdf") as document:
             for page_number, page in enumerate(document, start=1):
                 text = page.get_text("text").strip()
                 if text:
