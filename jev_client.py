@@ -47,8 +47,8 @@ class JEVClient:
     ) -> dict[str, Any]:
         """Return JEV Noul judgments normalized to [0, 1].
 
-        Scores are model judgments, not empirically measured retrieval accuracy.
-        When answer is empty, only retrieval relevance and sufficiency are judged.
+        These are model judgments, not empirically measured retrieval accuracy.
+        When answer is empty, only relevance and evidence sufficiency are judged.
         """
         state = {
             "question": question,
@@ -91,7 +91,6 @@ class JEVClient:
             ) from exc
 
         values: dict[str, Any] = {}
-        confidences: list[float] = []
         for output_name, result_name in (
             ("retrieval_relevance", "relevance"),
             ("evidence_sufficiency", "sufficiency"),
@@ -100,15 +99,8 @@ class JEVClient:
             if output_name not in response.nouls:
                 values[result_name] = None
                 continue
-            judgement = response.nouls[output_name]
-            score = float(judgement.noul)
+            score = float(response.nouls[output_name].noul)
             values[result_name] = min(1.0, max(0.0, score))
-            confidence = getattr(judgement, "confidence", None)
-            if confidence is not None:
-                try:
-                    confidences.append(float(confidence))
-                except (TypeError, ValueError):
-                    pass
 
         relevance = values.get("relevance")
         sufficiency = values.get("sufficiency")
@@ -116,9 +108,6 @@ class JEVClient:
             relevance is not None
             and sufficiency is not None
             and (relevance < 0.55 or sufficiency < 0.60)
-        )
-        values["judge_confidence"] = (
-            sum(confidences) / len(confidences) if confidences else None
         )
         values["reasoning"] = (
             "TypeSafe JEV Noul judgments: "
