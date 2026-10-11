@@ -4,7 +4,7 @@ A Streamlit application to upload PDFs, build a searchable knowledge base, answe
 
 ## Features
 - PDF extraction with filename and page metadata
-- Persistent ChromaDB using local Sentence Transformer embeddings
+- Persistent ChromaDB with its built-in local ONNX MiniLM embedding function
 - OpenRouter chat completions with the default model openrouter/free
 - TypeSafe JEV evaluates retrieval relevance, evidence sufficiency, and answer groundedness
 - One wider retrieval retry when JEV judges context insufficient
