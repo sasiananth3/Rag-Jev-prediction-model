@@ -2,9 +2,8 @@ from jev_client import JEVClient
 
 
 class FakeNoulResult:
-    def __init__(self, value, confidence=0.9):
+    def __init__(self, value):
         self.noul = value
-        self.confidence = confidence
 
 
 class FakeResponse:
@@ -75,4 +74,3 @@ def test_jev_evaluates_answer_grounding(monkeypatch):
 
     assert result["groundedness"] == 0.87
     assert result["needs_retry"] is False
-    assert result["judge_confidence"] == 0.9
