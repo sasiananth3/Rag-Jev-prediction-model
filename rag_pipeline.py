@@ -8,7 +8,6 @@ from typing import Any, Iterable
 
 import chromadb
 import fitz
-from sentence_transformers import SentenceTransformer
 
 
 @dataclass
@@ -52,11 +51,9 @@ class RAGPipeline:
         self,
         persist_directory: str = "chroma_db",
         collection_name: str = "pdf_knowledge",
-        embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2",
     ) -> None:
         self.persist_directory = str(Path(persist_directory))
         Path(self.persist_directory).mkdir(parents=True, exist_ok=True)
-        self.embedder = SentenceTransformer(embedding_model)
         self.client = chromadb.PersistentClient(path=self.persist_directory)
         self.collection = self.client.get_or_create_collection(
             name=collection_name, metadata={"hnsw:space": "cosine"}
@@ -100,15 +97,8 @@ class RAGPipeline:
                 # A fresh collection or older Chroma implementation may not need cleanup.
                 pass
             if ids:
-                embeddings = self.embedder.encode(
-                    documents, normalize_embeddings=True, show_progress_bar=False
-                ).tolist()
-                self.collection.upsert(
-                    ids=ids,
-                    documents=documents,
-                    metadatas=metadatas,
-                    embeddings=embeddings,
-                )
+                # Chroma's default ONNX MiniLM embedding function handles vectors locally.
+                self.collection.upsert(ids=ids, documents=documents, metadatas=metadatas)
             results.append(
                 {"filename": filename, "chunks": len(ids), "pages_with_text": len(pages)}
             )
@@ -120,11 +110,8 @@ class RAGPipeline:
         if not question.strip() or self.collection.count() == 0:
             return []
         query_k = min(max(1, top_k), int(self.collection.count()))
-        query_embedding = self.embedder.encode(
-            [question], normalize_embeddings=True, show_progress_bar=False
-        ).tolist()
         result = self.collection.query(
-            query_embeddings=query_embedding,
+            query_texts=[question],
             n_results=query_k,
             include=["documents", "metadatas", "distances"],
         )
