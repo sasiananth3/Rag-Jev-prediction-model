@@ -1,34 +1,21 @@
-# JEV API adapter integration
+# TypeSafe JEV evaluation
 
-JEV API deployments may differ. This repository uses a generic HTTP adapter instead of assuming an undocumented SDK or endpoint.
+This project uses the official TypeSafe Python SDK rather than a guessed generic endpoint.
 
-## Assumed request
-POST to JEV_API_URL with bearer authorization and a JSON body:
+## Configure
+Set TYPESAFE_API_KEY in your local .env file, or enter the key in the JEV API key field in the Streamlit sidebar. The default model is jev-latest. You can optionally set JEV_MODEL to a model alias supported by your TypeSafe account.
 
-    {
-      "question": "question",
-      "retrieved_chunks": [
-        {"text": "passage", "source": "report.pdf", "page": 2, "chunk_id": "abc"}
-      ],
-      "answer": "",
-      "criteria": ["relevance", "sufficiency", "groundedness"],
-      "response_schema": {
-        "relevance": "number between 0 and 1",
-        "sufficiency": "number between 0 and 1",
-        "groundedness": "number between 0 and 1",
-        "reasoning": "string",
-        "needs_retry": "boolean"
-      }
-    }
+## What JEV evaluates
+The app sends the user's question, retrieved PDF chunks (including source filenames and page numbers), and optional draft answer as state to TypeSafe JEV. It asks three Noul judgments:
+- Retrieval relevance: how directly the retrieved chunks address the question.
+- Evidence sufficiency: whether the retrieved context contains enough evidence to answer.
+- Answer groundedness: whether the draft answer is supported by the retrieved evidence.
 
-## Assumed response
+Before answer generation, the app evaluates retrieval relevance and sufficiency. If either is below the configured threshold, the app retrieves a wider set of chunks once. After answer generation, it re-evaluates the final answer for groundedness.
 
-    {
-      "relevance": 0.9,
-      "sufficiency": 0.7,
-      "groundedness": 0.95,
-      "reasoning": "A key detail is missing",
-      "needs_retry": true
-    }
+## Interpreting results
+Noul values are model judgments on a 0-to-1 scale. They are not empirically measured accuracy, and the SDK's confidence is not proof of correctness. Compare JEV scores with a manually labeled set of questions and relevant pages, and report objective Precision@K and Recall@K next to model-judge values.
 
-Update JEVClient._build_payload, request headers, and JEVClient._parse_response to match the actual JEV API contract. Model scores must be compared with human-verified labels before being treated as accuracy metrics.
+## Official references
+- TypeSafe SDK: https://github.com/typesafe-ai/typesafe-sdk-python
+- TypeSafe Python guide: https://typesafe-jev.com/en/guides/python/
