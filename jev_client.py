@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import os
 from typing import Any
 
-import requests
+from typesafe_sdk import Noul, TypeSafeClient
 
 
 class JEVConfigurationError(RuntimeError):
@@ -14,25 +15,24 @@ class JEVError(RuntimeError):
 
 
 class JEVClient:
-    """Generic REST adapter. Match its payload and parsing to your JEV API contract."""
+    """Use TypeSafe JEV to judge retrieval evidence and answer grounding."""
 
-    def __init__(self, base_url: str, api_key: str, timeout: int = 60) -> None:
-        self.base_url = base_url.strip()
-        self.api_key = api_key.strip()
-        self.timeout = timeout
-        if not self.base_url:
-            raise JEVConfigurationError("JEV API URL is missing. Set JEV_API_URL.")
+    def __init__(
+        self, api_key: str | None = None, model: str = "jev-latest"
+    ) -> None:
+        self.api_key = (api_key or os.getenv("TYPESAFE_API_KEY", "")).strip()
+        self.model = (model or os.getenv("JEV_MODEL", "jev-latest")).strip()
         if not self.api_key:
-            raise JEVConfigurationError("JEV API key is missing. Set JEV_API_KEY.")
+            raise JEVConfigurationError(
+                "JEV API key is missing. Set TYPESAFE_API_KEY in .env or the app sidebar."
+            )
 
     @staticmethod
-    def _build_payload(
-        question: str, chunks: list[Any], answer: str
-    ) -> dict[str, Any]:
-        data = []
+    def _chunk_payload(chunks: list[Any]) -> list[dict[str, Any]]:
+        result = []
         for chunk in chunks:
             item = chunk.to_dict() if hasattr(chunk, "to_dict") else dict(chunk)
-            data.append(
+            result.append(
                 {
                     "text": item.get("text", ""),
                     "source": item.get("source", "unknown"),
@@ -40,69 +40,91 @@ class JEVClient:
                     "chunk_id": item.get("chunk_id", ""),
                 }
             )
-        return {
-            "question": question,
-            "retrieved_chunks": data,
-            "answer": answer,
-            "criteria": ["relevance", "sufficiency", "groundedness"],
-            "response_schema": {
-                "relevance": "number between 0 and 1",
-                "sufficiency": "number between 0 and 1",
-                "groundedness": "number between 0 and 1",
-                "reasoning": "string",
-                "needs_retry": "boolean",
-            },
-        }
-
-    @staticmethod
-    def _parse_response(data: Any) -> dict[str, Any]:
-        if isinstance(data, dict) and isinstance(data.get("result"), dict):
-            data = data["result"]
-        if not isinstance(data, dict):
-            raise JEVError("JEV response must be a JSON object.")
-        result: dict[str, Any] = {}
-        for key in ("relevance", "sufficiency", "groundedness"):
-            value = data.get(key)
-            if value is None:
-                result[key] = None
-                continue
-            try:
-                value = float(value)
-            except (ValueError, TypeError) as exc:
-                raise JEVError(f"JEV field '{key}' must be a number from 0 to 1.") from exc
-            if not 0 <= value <= 1:
-                raise JEVError(f"JEV field '{key}' must be between 0 and 1.")
-            result[key] = value
-        result["reasoning"] = str(data.get("reasoning", ""))
-        result["needs_retry"] = bool(data.get("needs_retry", False))
-        if all(result[key] is None for key in ("relevance", "sufficiency", "groundedness")):
-            raise JEVError(
-                "No evaluation scores found. Adapt _parse_response() to your actual JEV schema."
-            )
         return result
 
     def evaluate(
-        self, question: str, chunks: list[Any], answer: str = ""
+        self, question: str, chunks: list[Any], answer: str | None = None
     ) -> dict[str, Any]:
-        payload = self._build_payload(question, chunks, answer)
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
+        """Return JEV Noul judgments normalized to [0, 1].
+
+        Scores are model judgments, not empirically measured retrieval accuracy.
+        When answer is empty, only retrieval relevance and sufficiency are judged.
+        """
+        state = {
+            "question": question,
+            "retrieved_chunks": self._chunk_payload(chunks),
+            "draft_answer": answer or "(Answer not generated yet; evaluate retrieval only.)",
         }
-        try:
-            response = requests.post(
-                self.base_url, headers=headers, json=payload, timeout=self.timeout
+        questions = {
+            "retrieval_relevance": Noul(
+                instructions=(
+                    "To what degree are the retrieved PDF chunks directly relevant "
+                    "to answering the user's question? Return a low value for unrelated "
+                    "or misleading chunks and a high value when most retrieved evidence "
+                    "directly addresses the question."
+                )
+            ),
+            "evidence_sufficiency": Noul(
+                instructions=(
+                    "To what degree do the retrieved PDF chunks contain sufficient "
+                    "information to answer the question accurately and completely? "
+                    "Return a low value when key evidence is missing or conflicting."
+                )
+            ),
+        }
+        if answer:
+            questions["answer_groundedness"] = Noul(
+                instructions=(
+                    "To what degree is the draft answer supported by the retrieved PDF "
+                    "chunks? Return a low value for unsupported claims, invented facts, "
+                    "or claims contradicted by the retrieved evidence."
+                )
             )
-        except requests.RequestException as exc:
-            raise JEVError(f"Could not connect to JEV: {exc}") from exc
-        if not response.ok:
+
+        try:
+            with TypeSafeClient(api_key=self.api_key, model=self.model) as client:
+                response = client.system_one(state=state, questions=questions)
+        except Exception as exc:
             raise JEVError(
-                f"JEV HTTP {response.status_code}: {response.text[:1000]}. "
-                "Verify endpoint, credentials, and API schema."
-            )
-        try:
-            data = response.json()
-        except ValueError as exc:
-            raise JEVError("JEV endpoint did not return JSON.") from exc
-        return self._parse_response(data)
+                f"JEV evaluation failed ({type(exc).__name__}). Check the API key, "
+                "model name, network connection, and TypeSafe account limits."
+            ) from exc
+
+        values: dict[str, Any] = {}
+        confidences: list[float] = []
+        for output_name, result_name in (
+            ("retrieval_relevance", "relevance"),
+            ("evidence_sufficiency", "sufficiency"),
+            ("answer_groundedness", "groundedness"),
+        ):
+            if output_name not in response.nouls:
+                values[result_name] = None
+                continue
+            judgement = response.nouls[output_name]
+            score = float(judgement.noul)
+            values[result_name] = min(1.0, max(0.0, score))
+            confidence = getattr(judgement, "confidence", None)
+            if confidence is not None:
+                try:
+                    confidences.append(float(confidence))
+                except (TypeError, ValueError):
+                    pass
+
+        relevance = values.get("relevance")
+        sufficiency = values.get("sufficiency")
+        values["needs_retry"] = bool(
+            relevance is not None
+            and sufficiency is not None
+            and (relevance < 0.55 or sufficiency < 0.60)
+        )
+        values["judge_confidence"] = (
+            sum(confidences) / len(confidences) if confidences else None
+        )
+        values["reasoning"] = (
+            "TypeSafe JEV Noul judgments: "
+            f"retrieval relevance={relevance if relevance is not None else 'not evaluated'}, "
+            f"evidence sufficiency={sufficiency if sufficiency is not None else 'not evaluated'}, "
+            f"answer groundedness={values.get('groundedness') if values.get('groundedness') is not None else 'not evaluated'}. "
+            "These are model judgments, not a human-verified accuracy percentage."
+        )
+        return values
