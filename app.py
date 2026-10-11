@@ -46,15 +46,16 @@ def main() -> None:
         openrouter_key = st.text_input(
             "OpenRouter API key", value=_secret("OPENROUTER_API_KEY"), type="password"
         )
-        model = st.text_input(
-            "OpenRouter model", value=_secret("OPENROUTER_MODEL", "openrouter/free")
+        openrouter_model = st.text_input(
+            "OpenRouter model",
+            value=_secret("OPENROUTER_MODEL", "openrouter/free"),
         )
-        jev_url = st.text_input(
-            "JEV API URL",
-            value=_secret("JEV_API_URL"),
-            placeholder="https://your-jev-service.example/api/evaluate",
+        jev_key = st.text_input(
+            "TypeSafe JEV API key", value=_secret("TYPESAFE_API_KEY"), type="password"
         )
-        jev_key = st.text_input("JEV API key", value=_secret("JEV_API_KEY"), type="password")
+        jev_model = st.text_input(
+            "JEV model", value=_secret("JEV_MODEL", "jev-latest")
+        )
         st.caption("Sidebar keys are session-only. Use .env for local persistence.")
         top_k = st.slider("Chunks per retrieval", 2, 12, 5)
         retry_enabled = st.checkbox(
@@ -133,20 +134,21 @@ def main() -> None:
                         evaluation: dict[str, Any] | None = None
                         retry_used = False
                         evaluator = (
-                            JEVClient(jev_url, jev_key)
-                            if jev_url.strip() and jev_key.strip()
+                            JEVClient(api_key=jev_key, model=jev_model)
+                            if jev_key.strip()
                             else None
                         )
                         if evaluator:
-                            evaluation = evaluator.evaluate(question, chunks, answer="")
+                            evaluation = evaluator.evaluate(question, chunks)
                             if retry_enabled and evaluation.get("needs_retry", False):
                                 chunks = pipeline.retrieve(
                                     question, top_k=min(top_k * 2, 20), diversity=True
                                 )
                                 retry_used = True
-                                evaluation = evaluator.evaluate(question, chunks, answer="")
+                                evaluation = evaluator.evaluate(question, chunks)
                         answerer = OpenRouterClient(
-                            api_key=openrouter_key, model=model or "openrouter/free"
+                            api_key=openrouter_key,
+                            model=openrouter_model or "openrouter/free",
                         )
                         answer = answerer.answer(question, chunks)
                         if evaluator:
@@ -167,7 +169,7 @@ def main() -> None:
                     "chunks": [chunk.to_dict() for chunk in chunks],
                     "evaluation": evaluation,
                     "retry_used": retry_used,
-                    "model": model or "openrouter/free",
+                    "model": openrouter_model or "openrouter/free",
                 }
 
         result = st.session_state.get("last_result")
@@ -190,17 +192,27 @@ def main() -> None:
                 evaluation = result["evaluation"]
                 cols = st.columns(3)
                 keys = ["relevance", "sufficiency", "groundedness"]
-                labels = ["Relevance", "Evidence sufficiency", "Answer groundedness"]
+                labels = [
+                    "Retrieval relevance (JEV)",
+                    "Evidence sufficiency (JEV)",
+                    "Answer groundedness (JEV)",
+                ]
                 for col, key, label in zip(cols, keys, labels):
                     value = evaluation.get(key)
                     col.metric(
-                        label, f"{float(value) * 100:.1f}%" if value is not None else "N/A"
+                        label, f"{float(value):.2f} / 1.00" if value is not None else "N/A"
                     )
                 st.write(evaluation.get("reasoning") or "No explanation supplied by JEV.")
-                st.caption("JEV scores are model judgments, not verified accuracy percentages.")
+                confidence = evaluation.get("judge_confidence")
+                if confidence is not None:
+                    st.caption(f"JEV judgment confidence: {float(confidence):.2f}")
+                st.caption(
+                    "These are JEV model judgments, not measured retrieval accuracy. "
+                    "Validate against human-labeled questions and reference passages."
+                )
                 st.json(evaluation)
             else:
-                st.info("Configure JEV in the sidebar to evaluate this answer.")
+                st.info("Configure TypeSafe JEV in the sidebar to evaluate this answer.")
 
     with tab_eval:
         st.subheader("Objective retrieval evaluation")
@@ -268,12 +280,12 @@ def main() -> None:
     with tab_setup:
         st.subheader("API configuration")
         st.markdown(
-            "OpenRouter: add OPENROUTER_API_KEY to .env or paste it into the sidebar. "
+            "OpenRouter: set OPENROUTER_API_KEY in .env or paste it into the sidebar. "
             "The default model is openrouter/free; free model availability and limits vary."
         )
         st.markdown(
-            "JEV: set JEV_API_URL and JEV_API_KEY. Confirm the official request/response schema "
-            "and adapt jev_client.py if needed. No score is shown when JEV is unconfigured."
+            "TypeSafe JEV: set TYPESAFE_API_KEY in .env or paste it into the sidebar. "
+            "The default model is jev-latest. No JEV endpoint URL is required when using the official SDK."
         )
         st.markdown(
             "Persistence: PDF text is processed in memory; vector chunks persist locally in "
