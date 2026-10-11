@@ -58,26 +58,25 @@ class JEVClient:
         questions = {
             "retrieval_relevance": Noul(
                 instructions=(
-                    "To what degree are the retrieved PDF chunks directly relevant "
-                    "to answering the user's question? Return a low value for unrelated "
-                    "or misleading chunks and a high value when most retrieved evidence "
-                    "directly addresses the question."
+                    "The retrieved PDF chunks are directly relevant to answering the user's question. "
+                    "Treat this statement as false when passages are unrelated or misleading, "
+                    "and true when most retrieved evidence directly addresses the question."
                 )
             ),
             "evidence_sufficiency": Noul(
                 instructions=(
-                    "To what degree do the retrieved PDF chunks contain sufficient "
-                    "information to answer the question accurately and completely? "
-                    "Return a low value when key evidence is missing or conflicting."
+                    "The retrieved PDF chunks contain enough information to answer the question accurately "
+                    "and completely. Treat this statement as false if important evidence is "
+                    "missing or the retrieved evidence materially conflicts."
                 )
             ),
         }
         if answer:
             questions["answer_groundedness"] = Noul(
                 instructions=(
-                    "To what degree is the draft answer supported by the retrieved PDF "
-                    "chunks? Return a low value for unsupported claims, invented facts, "
-                    "or claims contradicted by the retrieved evidence."
+                    "The factual claims in the draft answer are supported by the retrieved PDF chunks. "
+                    "Treat this statement as false if the answer makes unsupported claims, "
+                    "invents facts, or contradicts the retrieved evidence."
                 )
             )
 
